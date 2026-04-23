@@ -1,6 +1,6 @@
 # ai_engine.py — AI Paper Analyzer (Groq version)
 #
-# Same as before but uses Groq's free API instead of local Ollama.
+# Uses Groq's free API for fast cloud inference.
 # Model: llama3-8b-8192 — same Llama3, runs in the cloud for free.
 
 import requests
@@ -30,8 +30,8 @@ def check_ollama() -> bool:
     return True
 
 
-def call_ollama(prompt: str, max_tokens: int = 300) -> str:
-    """Sends prompt to Groq and returns response. Same interface as before."""
+def call_ollama(prompt: str, max_tokens: int = 400) -> str:
+    """Sends prompt to Groq and returns response."""
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
@@ -40,7 +40,7 @@ def call_ollama(prompt: str, max_tokens: int = 300) -> str:
         "model": MODEL_NAME,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
-        "temperature": 0.3,
+        "temperature": 0.4,
     }
     try:
         response = requests.post(GROQ_URL, json=payload, headers=headers, timeout=30)
@@ -55,11 +55,10 @@ def call_ollama(prompt: str, max_tokens: int = 300) -> str:
 def analyze_paper(paper: Paper) -> Paper:
     """
     Analyzes one paper and fills in the AI-generated fields.
-    Uses a single focused prompt to extract all 3 things at once.
     """
     logger.info(f"Analyzing: {paper.title[:60]}...")
 
-    prompt = f"""You are an AI research analyst. Read this research paper abstract and extract key information.
+    prompt = f"""You are an AI research analyst. Analyze this paper and identify its real-world impact on jobs and skills.
 
 Paper Title: {paper.title}
 
@@ -67,18 +66,18 @@ Abstract: {paper.abstract}
 
 Respond in EXACTLY this format, nothing else:
 
-SUMMARY: Write 2 sentences explaining what this paper does in plain English that anyone can understand.
+SUMMARY: Write 2 sentences explaining what this paper does in plain English.
 
-SKILLS: List 4-6 specific technical skills this research involves or that professionals need to work with it. Separate with commas.
+SKILLS: List 4-6 specific technical skills needed for this research. Be specific (e.g. "PyTorch", "transformer architecture", "RLHF", "computer vision", "NLP", "vector embeddings"). Separate with commas.
 
-RISING_JOBS: List 2-3 job roles that will GROW because of research like this. Separate with commas.
+RISING_JOBS: List 2-3 SPECIFIC job roles that will grow because of this research. Do NOT just say "AI/ML Engineer" — think about the specific domain. Examples: "Robotics Engineer", "NLP Researcher", "Computer Vision Engineer", "Data Engineer", "Prompt Engineer", "AI Safety Researcher", "MLOps Engineer", "AI Product Manager", "Healthcare AI Specialist". Separate with commas.
 
-DECLINING_JOBS: List 1-2 job roles that AI/automation from research like this might REPLACE or REDUCE. Separate with commas. Write "None" if not applicable.
+DECLINING_JOBS: List 1-2 specific job roles that this research could automate or reduce demand for. Think carefully — if this paper automates writing, say "Content Writer". If it automates coding, say "Junior Developer". If it automates image tasks, say "Graphic Designer". If truly no jobs are at risk, write "None". Separate with commas.
 
 IMPACT: Write exactly one word — High, Medium, or Low — based on how much this could change the industry."""
 
     try:
-        raw = call_ollama(prompt, max_tokens=300)
+        raw = call_ollama(prompt, max_tokens=400)
         result = parse_analysis(raw)
 
         paper.summary        = result["summary"]
@@ -92,7 +91,7 @@ IMPACT: Write exactly one word — High, Medium, or Low — based on how much th
         logger.error(f"Failed to analyze '{paper.title[:40]}': {e}")
         paper.summary        = paper.abstract[:200] + "..."
         paper.skills         = extract_skills_simple(paper.abstract)
-        paper.rising_jobs    = ["AI/ML Engineer"]
+        paper.rising_jobs    = ["AI Researcher"]
         paper.declining_jobs = []
         paper.impact_level   = "Medium"
         paper.processed      = True
@@ -118,7 +117,7 @@ def parse_analysis(raw: str) -> dict:
 
     summary       = extract("SUMMARY")        or "This paper presents advances in AI research."
     skills_raw    = extract("SKILLS")         or "Python, Machine Learning"
-    rising_raw    = extract("RISING_JOBS")    or "AI Engineer"
+    rising_raw    = extract("RISING_JOBS")    or "AI Researcher"
     declining_raw = extract("DECLINING_JOBS") or ""
     impact_raw    = extract("IMPACT")         or "Medium"
 

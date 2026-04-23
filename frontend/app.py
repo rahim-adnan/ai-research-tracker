@@ -408,8 +408,6 @@ with tab3:
     st.markdown("#### Step 2 — Analyze with Llama3")
     st.caption("Runs AI on each unanalyzed paper. Takes 1-2 minutes per paper on CPU.")
 
-    st.warning("⏳ This is slow on CPU — each paper takes 60-120 seconds. Start it and go make coffee!")
-
     if st.button("🤖 Analyze Papers", type="primary", disabled=not ok):
         with st.spinner("Analyzing papers with Llama3... This will take a while. Please wait and don't close the browser."):
             try:

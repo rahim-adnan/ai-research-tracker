@@ -140,6 +140,12 @@ def fetch_papers():
     return r.json()
 
 
+def analyze_one():
+    r = requests.post(ANALYZE_ENDPOINT.replace("/analyze-papers", "/analyze-one"), timeout=60)
+    r.raise_for_status()
+    return r.json()
+
+
 def analyze_papers():
     r = requests.post(ANALYZE_ENDPOINT, timeout=REQUEST_TIMEOUT)
     r.raise_for_status()
@@ -385,7 +391,7 @@ with tab3:
     st.markdown("""
     **How it works — run in this order:**
     1. **Fetch Papers** — downloads latest papers from arxiv (fast, ~10 seconds)
-    2. **Analyze Papers** — runs Llama3 on each paper (slow, ~1-2 min per paper)
+    2. **Analyze Papers** — runs Groq AI on each paper (fast, ~5 seconds per paper)
     """)
 
     st.divider()
@@ -405,19 +411,40 @@ with tab3:
     st.divider()
 
     # ── Step 2: Analyze ──
-    st.markdown("#### Step 2 — Analyze with Llama3")
-    st.caption("Runs AI on each unanalyzed paper. Takes 1-2 minutes per paper on CPU.")
+    st.markdown("#### Step 2 — Analyze with Groq (LLaMA 3)")
+    st.caption("Runs AI on each unanalyzed paper. Each paper takes ~5 seconds via Groq API.")
 
     if st.button("🤖 Analyze Papers", type="primary", disabled=not ok):
-        with st.spinner("Analyzing papers with Llama3... This will take a while. Please wait and don't close the browser."):
-            try:
-                result = analyze_papers()
-                st.success(f"✅ {result['message']}")
+        try:
+            # Get count of unprocessed papers first
+            data = get_papers(processed_only=False)
+            all_papers = data.get("papers", [])
+            unprocessed = [p for p in all_papers if not p.get("processed")]
+            total = len(unprocessed)
+
+            if total == 0:
+                st.success("✅ All papers are already analyzed!")
+            else:
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                analyzed = 0
+
+                while analyzed < total:
+                    result = analyze_one()
+                    analyzed += 1
+                    remaining = result.get("remaining", 0)
+                    title = result.get("analyzed_title", "")
+                    progress_bar.progress(analyzed / total)
+                    status_text.text(f"✅ {analyzed}/{total} — {title}...")
+
+                    if result.get("done"):
+                        break
+
+                st.success(f"🎉 Done! Analyzed {analyzed} papers.")
                 st.balloons()
-            except requests.exceptions.Timeout:
-                st.warning("⏳ Analysis is still running in the background — the request timed out but processing continues. Wait a few minutes then check the Papers tab.")
-            except Exception as e:
-                st.error(f"❌ {e}")
+
+        except Exception as e:
+            st.error(f"❌ {e}")
 
     st.divider()
 
@@ -425,9 +452,8 @@ with tab3:
     st.markdown("#### 💡 Tips")
     st.markdown("""
     - **Run Fetch + Analyze once a week** to stay up to date
-    - Papers are saved locally — you don't re-analyze already processed papers
-    - Switch model in `backend/ai_engine.py` → change `MODEL_NAME = "llama3"` to any Ollama model
-    - Check `backend/papers_db.json` to see all stored papers
+    - Papers are saved on the server — you don't re-analyze already processed papers
+    - Powered by **Groq API (LLaMA 3)** — fast cloud inference, no local setup needed
     - Arxiv updates daily — new papers appear Monday to Friday
     """)
 
@@ -450,6 +476,6 @@ with tab3:
 st.divider()
 st.markdown("""
 <div style="text-align:center; color:#aaa; font-size:13px; padding:10px 0;">
-    AI Research Tracker · Powered by Arxiv + Ollama Llama3 · 100% Free & Local
+    AI Research Tracker · Powered by Arxiv + Groq (LLaMA 3) · 100% Free
 </div>
 """, unsafe_allow_html=True)

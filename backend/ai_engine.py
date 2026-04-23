@@ -1,74 +1,61 @@
-# ai_engine.py — AI Paper Analyzer
+# ai_engine.py — AI Paper Analyzer (Groq version)
 #
-# WHAT THIS FILE DOES:
-# Takes each paper's abstract and sends it to Ollama (Llama3).
-# Extracts exactly 3 things:
-#   1. Plain English summary (2-3 sentences)
-#   2. Skills this paper is about / requires
-#   3. Jobs rising or declining because of this research
-#
-# WHY ABSTRACTS ONLY?
-# Full papers are 10-20 pages — too slow on CPU.
-# Abstracts are 150-300 words — fast and contain ALL the key info.
-# Researchers write abstracts to summarize everything important.
+# Same as before but uses Groq's free API instead of local Ollama.
+# Model: llama3-8b-8192 — same Llama3, runs in the cloud for free.
 
 import requests
 import re
 import logging
+import os
 from typing import List
 from models import Paper
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-OLLAMA_URL  = "http://localhost:11434/api/generate"
-MODEL_NAME  = "llama3"
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+GROQ_URL     = "https://api.groq.com/openai/v1/chat/completions"
+MODEL_NAME   = "llama3-8b-8192"
 
 
 def check_ollama() -> bool:
-    """Check if Ollama is running."""
-    try:
-        response = requests.get("http://localhost:11434/api/tags", timeout=5)
-        if response.status_code == 200:
-            models = [m["name"] for m in response.json().get("models", [])]
-            logger.info(f"Ollama running. Models: {models}")
-            if not any(MODEL_NAME in m for m in models):
-                logger.warning(f"'{MODEL_NAME}' not found! Run: ollama pull {MODEL_NAME}")
-                return False
-            return True
-    except requests.exceptions.ConnectionError:
-        logger.error("Cannot connect to Ollama. Is it running?")
+    """Check if Groq API key is available."""
+    if not GROQ_API_KEY:
+        logger.warning("GROQ_API_KEY not found in environment!")
         return False
-    return False
+    logger.info("Groq API key found — ready to analyze.")
+    return True
 
 
 def call_ollama(prompt: str, max_tokens: int = 300) -> str:
-    """Sends a prompt to local Ollama and returns response."""
+    """Sends prompt to Groq and returns response. Same interface as before."""
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
     payload = {
         "model": MODEL_NAME,
-        "prompt": prompt,
-        "stream": False,
-        "options": {
-            "num_predict": max_tokens,
-            "temperature": 0.3,   # low temperature = more consistent, structured output
-            "top_p": 0.9,
-        }
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": 0.3,
     }
     try:
-        response = requests.post(OLLAMA_URL, json=payload, timeout=120)
+        response = requests.post(GROQ_URL, json=payload, headers=headers, timeout=30)
         response.raise_for_status()
-        return response.json()["response"].strip()
+        return response.json()["choices"][0]["message"]["content"].strip()
     except requests.exceptions.Timeout:
-        raise RuntimeError("Ollama timed out")
+        raise RuntimeError("Groq timed out")
     except Exception as e:
-        raise RuntimeError(f"Ollama error: {str(e)}")
+        raise RuntimeError(f"Groq error: {str(e)}")
 
 
 def analyze_paper(paper: Paper) -> Paper:
     """
     Analyzes one paper and fills in the AI-generated fields.
     Uses a single focused prompt to extract all 3 things at once.
-    Returns the same paper object with fields filled in.
     """
     logger.info(f"Analyzing: {paper.title[:60]}...")
 
@@ -102,8 +89,7 @@ IMPACT: Write exactly one word — High, Medium, or Low — based on how much th
         paper.processed      = True
 
     except Exception as e:
-        logger.error(f"Failed to analyze paper '{paper.title[:40]}': {e}")
-        # Fill with fallback values so the paper still shows up
+        logger.error(f"Failed to analyze '{paper.title[:40]}': {e}")
         paper.summary        = paper.abstract[:200] + "..."
         paper.skills         = extract_skills_simple(paper.abstract)
         paper.rising_jobs    = ["AI/ML Engineer"]
@@ -115,7 +101,7 @@ IMPACT: Write exactly one word — High, Medium, or Low — based on how much th
 
 
 def parse_analysis(raw: str) -> dict:
-    """Parses Ollama's structured output into a clean dictionary."""
+    """Parses Groq's structured output into a clean dictionary."""
 
     def extract(label: str) -> str:
         pattern = rf"{label}:\s*(.+?)(?=\n[A-Z_]{{3,}}:|$)"
@@ -125,19 +111,17 @@ def parse_analysis(raw: str) -> dict:
         return ""
 
     def to_list(text: str) -> List[str]:
-        """Converts comma-separated string to cleaned list."""
         if not text or text.lower() == "none":
             return []
         items = [item.strip() for item in re.split(r'[,\n]', text)]
         return [i for i in items if i and len(i) > 2][:6]
 
-    summary        = extract("SUMMARY")       or "This paper presents advances in AI research."
-    skills_raw     = extract("SKILLS")        or "Python, Machine Learning"
-    rising_raw     = extract("RISING_JOBS")   or "AI Engineer"
-    declining_raw  = extract("DECLINING_JOBS") or ""
-    impact_raw     = extract("IMPACT")        or "Medium"
+    summary       = extract("SUMMARY")        or "This paper presents advances in AI research."
+    skills_raw    = extract("SKILLS")         or "Python, Machine Learning"
+    rising_raw    = extract("RISING_JOBS")    or "AI Engineer"
+    declining_raw = extract("DECLINING_JOBS") or ""
+    impact_raw    = extract("IMPACT")         or "Medium"
 
-    # Clean up impact level
     impact = "Medium"
     for level in ["High", "Medium", "Low"]:
         if level.lower() in impact_raw.lower():
@@ -145,19 +129,16 @@ def parse_analysis(raw: str) -> dict:
             break
 
     return {
-        "summary":       summary,
-        "skills":        to_list(skills_raw),
-        "rising_jobs":   to_list(rising_raw),
+        "summary":        summary,
+        "skills":         to_list(skills_raw),
+        "rising_jobs":    to_list(rising_raw),
         "declining_jobs": to_list(declining_raw),
-        "impact_level":  impact,
+        "impact_level":   impact,
     }
 
 
 def extract_skills_simple(text: str) -> List[str]:
-    """
-    Simple keyword-based skill extractor used as fallback.
-    Looks for known AI/ML skill keywords in the abstract.
-    """
+    """Fallback keyword-based skill extractor."""
     known_skills = [
         "Python", "PyTorch", "TensorFlow", "JAX",
         "transformer", "fine-tuning", "RAG", "RLHF",
@@ -175,10 +156,7 @@ def extract_skills_simple(text: str) -> List[str]:
 
 
 def analyze_all_papers(papers: List[Paper]) -> List[Paper]:
-    """
-    Analyzes a list of papers one by one.
-    Skips papers that are already processed.
-    """
+    """Analyzes all unprocessed papers one by one."""
     to_process = [p for p in papers if not p.processed]
     logger.info(f"Analyzing {len(to_process)} new papers...")
 

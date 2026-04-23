@@ -1,6 +1,6 @@
 # config.py — Frontend Settings
 
-API_BASE_URL      = "http://localhost:8000"
+API_BASE_URL = "https://ai-research-tracker.onrender.com"
 FETCH_ENDPOINT    = f"{API_BASE_URL}/fetch-papers"
 ANALYZE_ENDPOINT  = f"{API_BASE_URL}/analyze-papers"
 PAPERS_ENDPOINT   = f"{API_BASE_URL}/get-papers"

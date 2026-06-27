@@ -1,7 +1,5 @@
 # scraper.py — Arxiv Paper Fetcher
-#
-# Uses requests + BeautifulSoup to parse arxiv RSS directly.
-# More reliable than feedparser on Windows.
+# Uses arxiv API to fetch papers from the last 7 days.
 
 import requests
 from bs4 import BeautifulSoup
@@ -9,17 +7,12 @@ import logging
 import re
 from typing import List
 from models import Paper
+from datetime import datetime, timedelta
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-ARXIV_FEEDS = {
-    "cs.AI": "https://rss.arxiv.org/rss/cs.AI",
-    "cs.LG": "https://rss.arxiv.org/rss/cs.LG",
-    "cs.CL": "https://rss.arxiv.org/rss/cs.CL",
-    "cs.CV": "https://rss.arxiv.org/rss/cs.CV",
-}
-
+CATEGORIES = ["cs.AI", "cs.LG", "cs.CL", "cs.CV"]
 PAPERS_PER_CATEGORY = 10
 
 HEADERS = {
@@ -28,14 +21,14 @@ HEADERS = {
 
 
 def fetch_all_papers() -> List[Paper]:
-    """Fetches latest papers from all arxiv categories."""
+    """Fetches papers from the last 7 days across all categories."""
     all_papers = []
     seen_ids = set()
 
-    for category, url in ARXIV_FEEDS.items():
+    for category in CATEGORIES:
         logger.info(f"Fetching: {category}")
         try:
-            papers = fetch_category(category, url)
+            papers = fetch_category(category)
             for paper in papers:
                 if paper.arxiv_id not in seen_ids:
                     all_papers.append(paper)
@@ -49,55 +42,56 @@ def fetch_all_papers() -> List[Paper]:
     return all_papers
 
 
-def fetch_category(category: str, url: str) -> List[Paper]:
-    """Fetches and parses one arxiv RSS feed."""
-    response = requests.get(url, headers=HEADERS, timeout=30)
+def fetch_category(category: str) -> List[Paper]:
+    """Fetches papers using arxiv API with a 7-day window."""
+    url = "https://export.arxiv.org/api/query"
+    params = {
+        "search_query": f"cat:{category}",
+        "start": 0,
+        "max_results": PAPERS_PER_CATEGORY,
+        "sortBy": "submittedDate",
+        "sortOrder": "descending",
+    }
+
+    response = requests.get(url, params=params, headers=HEADERS, timeout=30)
     response.raise_for_status()
 
-    # Parse XML with BeautifulSoup
     soup = BeautifulSoup(response.content, "xml")
-    items = soup.find_all("item")[:PAPERS_PER_CATEGORY]
-
-    logger.info(f"Found {len(items)} items in {category} feed")
+    entries = soup.find_all("entry")
+    logger.info(f"Found {len(entries)} items in {category} feed")
 
     papers = []
-    for item in items:
+    cutoff = datetime.now() - timedelta(days=7)
+
+    for entry in entries:
         try:
-            paper = parse_item(item, category)
+            paper = parse_entry(entry, category, cutoff)
             if paper:
                 papers.append(paper)
         except Exception as e:
-            logger.warning(f"Failed to parse item: {e}")
+            logger.warning(f"Failed to parse entry: {e}")
             continue
 
     return papers
 
 
-def parse_item(item, category: str) -> Paper:
-    """Converts one RSS <item> into a Paper object."""
+def parse_entry(entry, category: str, cutoff: datetime) -> Paper:
+    """Converts one API entry into a Paper object."""
 
-    # Title
-    title = item.find("title")
-    title = title.text.strip() if title else ""
+    title = entry.find("title")
+    title = title.text.strip().replace("\n", " ") if title else ""
     if not title:
         return None
 
-    # Abstract — in arxiv RSS it's in <description>
-    description = item.find("description")
-    abstract = description.text.strip() if description else ""
+    abstract = entry.find("summary")
+    abstract = abstract.text.strip() if abstract else ""
     abstract = clean_text(abstract)
-
     if len(abstract) < 30:
         return None
 
-    # URL / link
-    link = item.find("link")
-    if link:
-        url = link.text.strip() if link.text else link.get("href", "")
-    else:
-        url = ""
-
-    # Arxiv ID from URL
+    # URL and arxiv ID
+    id_tag = entry.find("id")
+    url = id_tag.text.strip() if id_tag else ""
     arxiv_id = ""
     if url:
         match = re.search(r'abs/([0-9.]+)', url)
@@ -105,36 +99,31 @@ def parse_item(item, category: str) -> Paper:
             arxiv_id = match.group(1)
 
     if not arxiv_id:
-        # Try guid
-        guid = item.find("guid")
-        if guid:
-            match = re.search(r'abs/([0-9.]+)', guid.text)
-            if match:
-                arxiv_id = match.group(1)
+        return None
 
-    # Authors — arxiv uses <dc:creator>
+    # Authors
     authors = []
-    creator = item.find("creator")
-    if creator:
-        authors = [a.strip() for a in creator.text.split(",")][:5]
+    for author in entry.find_all("author"):
+        name = author.find("name")
+        if name:
+            authors.append(name.text.strip())
+    authors = authors[:5]
 
-    # Date
-    pub_date = item.find("pubDate")
+    # Published date
+    published_tag = entry.find("published")
     published = ""
-    if pub_date:
-        raw = pub_date.text.strip()
-        # Format: "Mon, 07 Apr 2025 00:00:00 -0400"
+    if published_tag:
+        raw = published_tag.text.strip()
         try:
-            from email.utils import parsedate
-            from datetime import datetime
-            parsed = parsedate(raw)
-            if parsed:
-                published = f"{parsed[0]}-{parsed[1]:02d}-{parsed[2]:02d}"
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            published = dt.strftime("%Y-%m-%d")
+            if dt.replace(tzinfo=None) < cutoff:
+                return None
         except:
             published = raw[:10]
 
     return Paper(
-        arxiv_id=arxiv_id or title[:20],
+        arxiv_id=arxiv_id,
         title=title,
         abstract=abstract,
         authors=authors,

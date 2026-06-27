@@ -371,9 +371,7 @@ with tab2:
                         <div style="margin-bottom:4px;">
                             <strong style="font-size:12px; color:#555;">📈 Rising roles:</strong> {rising_html}
                         </div>
-                        <div>
-                            <strong style="font-size:12px; color:#555;">📉 At-risk roles:</strong> {declining_html}
-                        </div>
+                        
                     </div>
                     """, unsafe_allow_html=True)
 

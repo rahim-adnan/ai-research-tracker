@@ -294,23 +294,6 @@ with tab1:
                 else:
                     st.info("No job trend data yet.")
 
-            with col_c:
-                st.markdown("#### 📉 Declining / At-Risk Roles")
-                st.caption("Jobs AI research may replace")
-                declining = trends.get("declining_jobs", [])
-                if declining:
-                    max_count = declining[0]["count"] if declining else 1
-                    for item in declining[:8]:
-                        pct = int((item["count"] / max_count) * 100)
-                        width = max(pct, 20)
-                        st.markdown(f"""
-                        <div style="margin:3px 0;">
-                            <div class="trend-bar-declining" style="width:{width}%">
-                                {item['job']} ({item['count']})
-                            </div>
-                        </div>""", unsafe_allow_html=True)
-                else:
-                    st.info("No declining job data yet.")
 
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:

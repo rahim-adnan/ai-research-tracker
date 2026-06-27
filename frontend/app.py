@@ -396,7 +396,7 @@ with tab3:
 
     # ── Step 1: Fetch ──
     st.markdown("#### Step 1 — Fetch Latest Papers")
-    st.caption("Grabs papers from the last 7 days from cs.AI, cs.LG, cs.CL, cs.CV on arxiv")
+    st.caption("Grabs the most recent papers from cs.AI, cs.LG, cs.CL, cs.CV on arxiv")
 
     if st.button("📥 Fetch Papers", type="primary", disabled=not ok):
         with st.spinner("Fetching papers from arxiv... (~10 seconds)"):

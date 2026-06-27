@@ -193,6 +193,23 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Backend status
+# Backend wakeup
+if "backend_ready" not in st.session_state:
+    st.session_state.backend_ready = False
+
+if not st.session_state.backend_ready:
+    with st.spinner("Waking up the backend... this takes 30-60 seconds on Render's free tier."):
+        import time
+        for i in range(12):
+            ok, health_data = check_health()
+            if ok:
+                st.session_state.backend_ready = True
+                break
+            time.sleep(5)
+        if not st.session_state.backend_ready:
+            st.error("Backend took too long to wake up. Please refresh the page.")
+            st.stop()
+
 ok, health_data = check_health()
 col_s, _ = st.columns([1, 3])
 with col_s:
@@ -201,7 +218,7 @@ with col_s:
         st.markdown(f'<p style="color:#28a745; font-weight:600;">● Backend connected · {papers_count} papers stored</p>',
                     unsafe_allow_html=True)
     else:
-        st.markdown('<p style="color:#dc3545; font-weight:600;">● Backend offline — run: cd backend && python main.py</p>',
+        st.markdown('<p style="color:#dc3545; font-weight:600;">● Backend offline</p>',
                     unsafe_allow_html=True)
 
 st.divider()
